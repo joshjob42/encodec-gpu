@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+# edited to add some gpu support by Joshua Job based on another fork by mimbres https://github.com/mimbres/encodec
 
 """Command-line for audio compression."""
 
@@ -11,6 +12,7 @@ from pathlib import Path
 import sys
 
 import torchaudio
+import torch
 
 from .compress import compress, decompress, MODELS
 from .utils import save_audio, convert_audio
@@ -32,6 +34,7 @@ def get_parser():
     parser.add_argument(
         'output', type=Path, nargs='?',
         help='Output file, otherwise inferred from input file.')
+    parser.add_argument('-g','--gpu',action='store_true',help='Use GPU if available.')
     parser.add_argument(
         '-b', '--bandwidth', type=float, default=6, choices=[1.5, 3., 6., 12., 24.],
         help='Target bandwidth (1.5, 3, 6, 12 or 24). 1.5 is not supported with --hq.')
@@ -82,6 +85,12 @@ def main():
     if not args.input.exists():
         fatal(f"Input file {args.input} does not exist.")
 
+    # new arg by me, inspired by https://github.com/mimbres/encodec/blob/main/encodec/__main__.py
+    if args.gpu:
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device="cpu"
+
     if args.input.suffix.lower() == SUFFIX:
         # Decompression
         if args.output is None:
@@ -89,8 +98,10 @@ def main():
         elif args.output.suffix.lower() != '.wav':
             fatal("Output extension must be .wav")
         check_output_exists(args)
-        out, out_sample_rate = decompress(args.input.read_bytes())
+        out, out_sample_rate = decompress(args.input.read_bytes(),device=device)
         check_clipping(out, args)
+        if args.gpu:
+            out = out.cpu()
         save_audio(out, args.output, out_sample_rate, rescale=args.rescale)
     else:
         # Compression
@@ -108,14 +119,16 @@ def main():
 
         wav, sr = torchaudio.load(args.input)
         wav = convert_audio(wav, sr, model.sample_rate, model.channels)
-        compressed = compress(model, wav, use_lm=args.lm)
+        compressed = compress(model, wav, use_lm=args.lm,device=device)
         if args.output.suffix.lower() == SUFFIX:
             args.output.write_bytes(compressed)
         else:
             # Directly run decompression stage
             assert args.output.suffix.lower() == '.wav'
-            out, out_sample_rate = decompress(compressed)
+            out, out_sample_rate = decompress(compressed,device=device)
             check_clipping(out, args)
+            if args.gpu:
+                out=out.cpu()
             save_audio(out, args.output, out_sample_rate, rescale=args.rescale)
 
 
