@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+# edited by Joshua Job to add gpu support ala mimbres https://github.com/mimbres/encodec
 
 """API to compress/decompress audio to bytestreams."""
 
@@ -26,7 +27,7 @@ MODELS = {
 
 
 def compress_to_file(model: EncodecModel, wav: torch.Tensor, fo: tp.IO[bytes],
-                     use_lm: bool = True):
+        use_lm: bool = True):
     """Compress a waveform to a file-object using the given model.
 
     Args:
@@ -156,7 +157,7 @@ def decompress_from_file(fo: tp.IO[bytes], device='cpu') -> tp.Tuple[torch.Tenso
     return wav[0, :, :audio_length], model.sample_rate
 
 
-def compress(model: EncodecModel, wav: torch.Tensor, use_lm: bool = False) -> bytes:
+def compress(model: EncodecModel, wav: torch.Tensor, use_lm: bool = False, device='cpu') -> bytes:
     """Compress a waveform using the given model. Returns the compressed bytes.
 
     Args:
@@ -168,6 +169,11 @@ def compress(model: EncodecModel, wav: torch.Tensor, use_lm: bool = False) -> by
             compress the stream using Entropy Coding. This will slow down compression
             quite a bit, expect between 20 to 30% of size reduction.
     """
+
+    # modified ala https://github.com/mimbres/encodec/blob/main/encodec/compress.py
+    model.to(device)
+    wav=wav.to(device)
+
     fo = io.BytesIO()
     compress_to_file(model, wav, fo, use_lm=use_lm)
     return fo.getvalue()
